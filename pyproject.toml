@@ -6,8 +6,6 @@ requires-python = "~=3.12.0"
 dependencies = [
     "transformer-segmenter",
     "from-scratch-tagger",
-    "ConfigSpace==0.4.18",
-    "hpbandster==0.7.4",
 ]
 
 [tool.uv.sources]

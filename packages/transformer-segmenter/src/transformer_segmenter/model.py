@@ -12,11 +12,10 @@ import ray
 import torch
 import torch.nn as nn
 import tqdm
-from ray.train import Checkpoint, get_checkpoint
+from ray.tune import Checkpoint, get_checkpoint
 from ray import tune
-from ray.tune.schedulers import AsyncHyperBandScheduler
 from ray.tune.search import ConcurrencyLimiter
-from ray.tune.search.bayesopt import BayesOptSearch
+from ray.tune.search.hyperopt import HyperOptSearch
 from ray.tune.search.sample import Integer
 from ray.tune.stopper import FunctionStopper
 from sklearn.metrics import f1_score
@@ -664,15 +663,16 @@ def tune_model(model_for_config, search_space, name: str, fixed_cfg, train_set: 
 
     ray.init(num_cpus=cpus)
 
-    algo = BayesOptSearch(utility_kwargs={"kind": "ucb", "kappa": 2.5, "xi": 0.0})
+    algo = HyperOptSearch(space=HyperOptSearch.convert_search_space(search_space), metric="loss", mode="min")
     algo = ConcurrencyLimiter(algo, max_concurrent=cpus)
 
     # We just use the basic ASHA schedular
-    scheduler = AsyncHyperBandScheduler(
-        max_t=fixed_cfg["max_epochs"],
-        grace_period=3,
-        reduction_factor=2,
-    )
+    # scheduler = HyperBandForBOHB(
+    #     time_attr="training_iteration",
+    #     max_t=fixed_cfg["max_epochs"],
+    #     reduction_factor=4,
+    #     stop_last_trials=False,
+    # )
 
     # Move the trainset & validset into shared memory (they are very large)
     train_set, valid_set = ray.put(train_set), ray.put(valid_set)
@@ -700,13 +700,13 @@ def tune_model(model_for_config, search_space, name: str, fixed_cfg, train_set: 
         resume=True,
         mode="min",
         resources_per_trial={"gpu": 1.0 / cpus} if torch.cuda.is_available() else None,
-        config=search_space_to_float,
+        # config=search_space,
         num_samples=100,
         time_budget_s=hrs * 60 * 60,
         search_alg=algo,
         storage_path=str(Path(os.environ["TUNING_CHECKPOINT_DIR"]).resolve()),
         trial_dirname_creator=lambda trial: trial.trial_id,
-        scheduler=scheduler,
+        # scheduler=scheduler,
         stop=FunctionStopper(lambda trial_id, results: results["loss"] >= max_loss)
     )
 
@@ -940,7 +940,7 @@ def do_tune_parse():
     )
 
     # TODO _try_ a grid search
-    fixed_cfg = {"batch_size": 64, "valid_batch_size": 512, "max_epochs": 10}
+    fixed_cfg = {"batch_size": 64, "valid_batch_size": 512, "max_epochs": 30}
     search_space = {
         "hidden_dim_per_head": tune.qrandint(16, 512),
         "layers": tune.qrandint(1, 5),
@@ -1002,9 +1002,10 @@ def do_tune_parse():
     # cfg = other
 
     # train(Seq2Seq.from_config(vocab, cfg, device), cfg,"testing_seg", train_dataset, valid_dataset, device)
-    tune_model(lambda conf, dev: Seq2Seq.from_config(vocab, conf, dev), search_space, "testing_parse", fixed_cfg, train_dataset, valid_dataset, cpus=1, hrs=6)
+    tune_model(lambda conf, dev: Seq2Seq.from_config(vocab, conf, dev), search_space, "testing_parse_hyperopt", fixed_cfg, train_dataset, valid_dataset, cpus=1, hrs=24)
 
 
 if __name__ == "__main__":
-    do_train_parse()
+    # do_train_parse()
     # do_train_seg()
+    do_tune_parse()
