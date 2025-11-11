@@ -1,0 +1,28 @@
+[project]
+name = "nguni-joint-morphological-tagger"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = "~=3.12.0"
+dependencies = [
+    "transformer-segmenter",
+    "from-scratch-tagger",
+    "ConfigSpace==0.4.18",
+    "hpbandster==0.7.4",
+]
+
+[tool.uv.sources]
+transformer-segmenter = { workspace = true }
+from-scratch-tagger = { workspace = true }
+annotated-corpus-dataset = { workspace = true }
+evaluation-utils = { workspace = true }
+torch = [
+  { index = "pytorch-cu128", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true

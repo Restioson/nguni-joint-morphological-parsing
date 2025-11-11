@@ -1,0 +1,442 @@
+import os
+import pickle
+import tempfile
+import time
+from pathlib import Path
+import random
+import copy
+
+import tqdm
+
+import annotated_corpus_dataset
+import torch
+from torch import optim, nn, Tensor
+from torch.nn.utils.rnn import pad_sequence
+from torch.utils.data import DataLoader, BatchSampler, RandomSampler, SequentialSampler
+from sklearn.metrics import f1_score, classification_report
+from ray.train import Checkpoint, get_checkpoint
+from ray import tune, train
+from ray.tune.schedulers import ASHAScheduler
+from ray.tune.search import BasicVariantGenerator
+from ray.util.client import ray
+
+from .encapsulated_model import EncapsulatedModel
+from annotated_corpus_dataset import TaggingDataset, SEQ_PAD_IX, WORD_SEP_TEXT, SEQ_PAD_TEXT, \
+    EncodedTaggingDatasetBatch, EncodedTaggingDatasetItem
+
+torch.manual_seed(0)
+random.seed(0)
+
+split_words = annotated_corpus_dataset.split_words
+tokenize_into_chars = annotated_corpus_dataset.tokenize_into_chars
+tokenize_into_morphemes = annotated_corpus_dataset.tokenize_into_morphemes
+split_sentences = annotated_corpus_dataset.split_sentences
+
+
+class EmbedBySumming(nn.Module):
+    """Embed a given morpheme by embedding each character and then summing those embeddings together"""
+
+    def __init__(self, trainset: TaggingDataset, target_embedding_dim, device):
+        super(EmbedBySumming, self).__init__()
+        self.dev = device
+        self.embed = nn.Embedding(trainset.num_submorphemes, target_embedding_dim, device=self.dev)
+        self.output_dim = target_embedding_dim
+
+    def forward(self, morphemes):
+        return torch.sum(self.embed(morphemes), dim=2)
+
+
+class EmbedSingletonFeature(nn.Module):
+    """Embed a given morpheme by mapping it to an embedding directly"""
+
+    def __init__(self, trainset: TaggingDataset, target_embedding_dim, device):
+        super(EmbedSingletonFeature, self).__init__()
+        self.dev = device
+        self.embed = nn.Embedding(trainset.num_submorphemes, target_embedding_dim, device=self.dev)
+        self.output_dim = target_embedding_dim
+
+    def forward(self, morphemes: Tensor):
+        assert morphemes.size(dim=2) == 1
+        return self.embed(torch.squeeze(morphemes, dim=2))
+
+# TODO broken? - need to use pack padded sequence etc
+class EmbedWithBiLSTM(nn.Module):
+    """Embed a given morpheme by running its characters through a bi-LSTM to get a final embedding output"""
+
+    def __init__(self, trainset: TaggingDataset, hidden_embed_dim, hidden_dim, target_embedding_dim, device,
+                 num_layers=1,
+                 dropout=0):
+        super(EmbedWithBiLSTM, self).__init__()
+        self.output_dim = target_embedding_dim
+        self.dev = device
+        self.embed = nn.Embedding(trainset.num_submorphemes, hidden_embed_dim)
+        self.lstm = nn.LSTM(hidden_embed_dim, hidden_dim, num_layers=num_layers, dropout=dropout, bidirectional=True,
+                            batch_first=True, device=self.dev)
+        self.hidden2embed = nn.Linear(hidden_dim * 2, target_embedding_dim, device=self.dev)
+        self.drop = nn.Dropout(dropout)  # Dropout used for input & output of bi-LSTM, as per NLAPOST21 paper
+
+    def forward(self, batches):
+        # We want to compute the combination of each word's subword representation
+        # Therefore, we unbind on the batch level (each batch is a sentence / word), and then treat each morpheme as
+        # a batch
+
+        batches_out = []
+        for morphemes in torch.unbind(batches, dim=0):
+            embeds = self.embed(morphemes)
+            embeds = self.drop(embeds)
+            lstm_out, _ = self.lstm(embeds)
+            lstm_out = self.drop(lstm_out)
+            out_embeds = self.hidden2embed(lstm_out)
+            batches_out.append(out_embeds[:, embeds.size(dim=1) - 1])
+
+        return torch.stack(batches_out, dim=0)
+
+
+def analyse_model(model, config, valid: TaggingDataset):
+    """Analyse the given model on the validation dataset"""
+
+    valid_loader = DataLoader(
+        valid,
+        batch_sampler=BatchSampler(SequentialSampler(valid), config["batch_size"], False),
+        collate_fn=TaggingDataset.collate_batch,
+    )
+
+    with torch.no_grad():
+        # Set model to evaluation mode (affects layers such as BatchNorm)
+        model.eval()
+
+        predicted = []
+        expected = []
+        valid_loss = 0.0
+        hits = 0
+        total = 0
+
+        for batch in valid_loader:
+            loss = model.loss(batch.morphemes, batch.tags)
+            valid_loss += loss.item() / batch.morphemes.size(dim=0)
+
+            # Get the model's predicted tags
+            predicted_tags = model.forward_tags_only(batch.morphemes)
+
+            # For the F1 score, we essentially concatenate all the predicted tags into a list, and do the same with
+            # the gold standard tags. Then we call the f1_score function from sklearn.
+
+            # This loop splits by batch
+            for batch_elt_expected, batch_elt_pred in zip(torch.unbind(batch.tags), torch.unbind(predicted_tags)):
+                # This loop splits by morpheme
+                batch_elt_expected = [valid.ix_to_tag[tag.item()] for tag in batch_elt_expected]
+                batch_elt_pred = [valid.ix_to_tag[tag.item()] for tag in batch_elt_pred]
+
+                predicted_this_batch, expected_this_batch = [], []
+                for expected_tag, predicted_tag in zip(batch_elt_expected, batch_elt_pred):
+                    # Skip <?word_sep?> and <?pad?> tags, if any
+                    if expected_tag == WORD_SEP_TEXT or expected_tag == SEQ_PAD_TEXT:
+                        continue
+
+                    predicted_this_batch.append(predicted_tag)
+                    expected_this_batch.append(expected_tag)
+
+                total += 1
+                if predicted_this_batch == expected_this_batch:
+                    hits += 1
+
+                predicted.extend(predicted_this_batch)
+                expected.extend(expected_this_batch)
+
+        # Calculate scores & return
+        f1_micro = f1_score(expected, predicted, average="micro")
+        f1_macro = f1_score(expected, predicted, average="macro")
+        f1_weighted = f1_score(expected, predicted, average="weighted")
+        report = classification_report(expected, predicted, zero_division=0.0)
+
+        return valid_loss, len(valid_loader), report, f1_micro, f1_macro, f1_weighted, hits / total
+
+
+def encoded_morpheme_to_text(dset: TaggingDataset, morpheme: Tensor) -> str:
+    if morpheme.size(dim=0) == 1:
+        return dset.ix_to_morpheme[morpheme.item()]
+    else:
+        return "".join(
+            dset.ix_to_morpheme[submorpheme.item()] for submorpheme in morpheme if submorpheme.item() != SEQ_PAD_IX
+        )
+
+
+def predict_for_test_set(model, test_set: TaggingDataset):
+    with torch.no_grad():
+        # Set model to evaluation mode (affects layers such as BatchNorm)
+        model.eval()
+
+        rows = []
+        for morphemes, expected_tags in test_set:
+            predicted_tags = model.forward_tags_only(morphemes.unsqueeze(1))
+
+            morphemes = [encoded_morpheme_to_text(test_set, morpheme) for morpheme in morphemes]
+            expected_tags = [test_set.ix_to_tag[tag.item()] for tag in expected_tags]
+            predicted_tags = [test_set.ix_to_tag[tag.item()] for tag in predicted_tags]
+
+            empty_row = {"morphemes": [], "expected_tags": [], "predicted_tags": []}
+            current_row = copy.deepcopy(empty_row)
+            for morpheme, expected_tag, predicted_tag in zip(morphemes, expected_tags, predicted_tags):
+                if morpheme == WORD_SEP_TEXT:
+                    rows.append(current_row)
+                    current_row = copy.deepcopy(empty_row)
+                    continue
+
+                current_row["morphemes"].append(morpheme)
+                current_row["expected_tags"].append(expected_tag)
+                current_row["predicted_tags"].append(predicted_tag)
+
+            rows.append(current_row)
+
+        return rows
+
+
+def train_model(model, name: str, config, epochs, train_set: TaggingDataset,
+                valid: TaggingDataset, device, best_ever_macro_f1: float = 0.0, use_ray=True):
+    """Train the given model on the training set."""
+
+    train_set = train_set.to(device)
+    valid = valid.to(device)
+
+    train_loader = DataLoader(
+        train_set,
+        batch_sampler=BatchSampler(RandomSampler(train_set), config["batch_size"], False),
+        collate_fn=TaggingDataset.collate_batch,
+    )
+
+    optimizer = optim.AdamW(model.parameters(), lr=config["lr"], weight_decay=config["weight_decay"])
+
+    # When hyperparameter tuning with ray, we do some additional steps such as saving checkpoints
+    start_epoch = 0
+    if use_ray:
+        checkpoint = get_checkpoint()
+        if checkpoint:
+            with checkpoint.as_directory() as checkpoint_dir:
+                data_path = Path(checkpoint_dir) / "data.pkl"
+                with open(data_path, "rb") as fp:
+                    checkpoint_state = pickle.load(fp)
+                start_epoch = checkpoint_state["epoch"]
+                model.load_state_dict(checkpoint_state["model_state_dict"])
+                optimizer.load_state_dict(checkpoint_state["optimizer_state_dict"])
+
+    best_macro = 0.0
+    best_macro_epoch = 0
+    micro_at_best_macro = 0.0
+
+    # Train the model for as many epochs as the config states
+    batches = len(train_loader)
+    for epoch in range(start_epoch, epochs):
+        # Set model to training mode (affects layers such as BatchNorm)
+        model.train()
+
+        train_loss = 0
+        start = time.time()
+        for batch in tqdm.tqdm(train_loader):
+            # Clear gradients
+            model.zero_grad()
+
+            # Calculate loss and backprop
+            loss = model.loss(batch.morphemes, batch.tags)
+            train_loss += loss.item() / batch.morphemes.size(dim=0)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), config["gradient_clip"])
+            optimizer.step()
+
+        # Print some output about how the model is doing in this epoch
+        elapsed = time.time() - start
+        print(f"Eval (elapsed = {elapsed:.2f}s)")
+        valid_loss, valid_batches, _report, f1_micro, f1_macro, f1_weighted, hit_rate = analyse_model(model, config, valid)
+        elapsed = time.time() - start
+        print(f"Epoch {epoch} done in {elapsed:.2f}s. "
+              f"Train loss: {train_loss / batches:.3f}. "
+              f"Valid loss: {valid_loss / valid_batches:.3f}. "
+              f"Micro F1: {f1_micro:.3f}. Macro f1: {f1_macro:.3f}. "
+              f"Hit-rate: {hit_rate * 100:.2f}%")
+
+        # Save the model if it has done better than the previous best epochs
+        if f1_macro > best_macro:
+            best_macro = f1_macro
+            best_macro_epoch = epoch
+            micro_at_best_macro = f1_micro
+
+            out_dir = os.environ.get("MODEL_OUT_DIR")
+            if out_dir and not use_ray and best_macro >= best_ever_macro_f1:
+                print(f"Saving model because best macro {best_macro} >= best ever {best_ever_macro_f1}")
+                out_dir = os.path.join(out_dir, "checkpoints", name)
+                os.makedirs(out_dir, exist_ok=True)
+                with open(os.path.join(out_dir, name) + ".pt", "wb") as f:
+                    torch.save(EncapsulatedModel(name, model, train_set, device), f)
+
+        # Checkpoint the model if hyperparameter tuning with ray
+        if use_ray:
+            checkpoint_data = {
+                "epoch": epoch,
+                "best_epoch": best_macro_epoch,
+                "best_macro": best_macro,
+                "model_state_dict": model.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+            }
+
+            with tempfile.TemporaryDirectory() as checkpoint_dir:
+                data_path = Path(checkpoint_dir) / "data.pkl"
+                with open(data_path, "wb") as fp:
+                    pickle.dump(checkpoint_data, fp)
+
+                checkpoint = Checkpoint.from_directory(checkpoint_dir)
+                train.report(
+                    {"loss": valid_loss / valid_batches, "f1_macro": f1_macro, "f1_micro": f1_micro},
+                    checkpoint=checkpoint,
+                )
+
+    print(f"Best Macro f1: {best_macro} in epoch {best_macro_epoch} (micro here was {micro_at_best_macro})")
+
+    return micro_at_best_macro, best_macro, model
+
+
+def tune_model(model, main_config, feature_level, name: str, epochs, trainset: TaggingDataset,
+               valid: TaggingDataset, cpus=4, hrs=11, lang="ZU"):
+    """Tune the given model with Ray"""
+
+    ray.init(num_cpus=cpus)
+
+    embed_config, mk_embed = feature_level[1], feature_level[3]
+    name, mk_model = model[0], model[1]
+
+    config = {**main_config, **embed_config}
+
+    # We just use the basic ASHA schedular
+    scheduler = ASHAScheduler(
+        metric="loss",
+        mode="min",
+        max_t=epochs,
+        grace_period=3,
+        reduction_factor=2,
+    )
+
+    # Move the trainset & validset into shared memory (they are very large)
+    trainset, valid = ray.put(trainset), ray.put(valid)
+
+    def do_train(conf):
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        return train_model(model_for_config(mk_model, mk_embed, ray.get(trainset), conf, device), name, conf,
+                    conf["epochs"][lang], ray.get(trainset), ray.get(valid), device)
+
+    # Do the hyperparameter tuning
+    result = tune.run(
+        do_train,
+        resources_per_trial={"gpu": 1.0 / cpus} if torch.cuda.is_available() else None,
+        config=config,
+        num_samples=100,
+        time_budget_s=hrs * 60 * 60,
+        search_alg=BasicVariantGenerator(constant_grid_search=True, max_concurrent=4),
+        scheduler=scheduler,
+        storage_path=os.environ["TUNING_CHECKPOINT_DIR"],
+    )
+
+    # Print out the epoch with best macro & micro F1 scores
+    for metric in ["f1_macro", "f1_micro"]:
+        best_trial = result.get_best_trial(metric, "max", "all")
+        print(f"Best trial by {metric}:")
+        print(f" config: {best_trial.config}")
+        print(f" val loss: {best_trial.last_result['loss']}")
+        print(f" macro f1 {best_trial.last_result['f1_macro']}")
+        print(f" micro {best_trial.last_result['f1_micro']}")
+
+        best_model = model_for_config(mk_model, mk_embed, ray.get(trainset), best_trial.config)
+        best_model = best_model.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+
+        best_checkpoint = result.get_best_checkpoint(trial=best_trial, metric=metric, mode="max")
+        with best_checkpoint.as_directory() as checkpoint_dir:
+            data_path = Path(checkpoint_dir) / "data.pkl"
+            with open(data_path, "rb") as fp:
+                best_checkpoint_data = pickle.load(fp)
+
+            best_model.load_state_dict(best_checkpoint_data["model_state_dict"])
+            _, _, report, f1_micro, f1_macro, f1_weighted, hit_rate = analyse_model(best_model, best_trial.config, ray.get(valid))
+            print(f" {name}: Micro F1: {f1_micro}. Macro f1: {f1_macro}. Weighted F1: {f1_weighted}. Hit-rate: {hit_rate * 100:.2f}%")
+            print(
+                f" {name}: Best macro f1: {best_checkpoint_data['best_macro']} at epoch "
+                f"{best_checkpoint_data['best_epoch']}")
+            print(report)
+
+
+def model_for_config(mk_model, mk_embed, trainset, config, device):
+    """Create a model with the given config"""
+
+    embed_module = mk_embed(config, trainset, device)
+    model = mk_model(trainset, embed_module, config, device)
+    return model
+
+
+def train_all(data_dir: Path, model, splits, feature_level, cfg,
+              device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+              langs=None,
+              map_tag=annotated_corpus_dataset.identity,
+              n_models=5,
+              add_valid_to_training_set=True
+):
+    """Train `n_models` seeds of the given model for all languages."""
+
+    if langs is None:
+        langs = ["ZU", "XH", "SS", "NR"]
+
+    split, split_name, _ = splits
+    model_name, mk_model = model
+    (feature_name, _, extract_features, embed_features) = feature_level
+    model_name = model_name + "-trained-with-valid-set" if add_valid_to_training_set else model_name
+
+    print(f"Config: {cfg}")
+
+    for lang in langs:
+        portions = TaggingDataset.load_data(lang, data_dir, device=device, split=split, tokenize=extract_features, map_tag=map_tag)
+        train, valid, test = portions["train"], portions["dev"], portions["test"]
+
+        if add_valid_to_training_set:
+            train += valid
+
+        macros = []
+        micros = []
+        best_ever_macro_f1 = 0.0
+        epochs = cfg["epochs"][lang]
+
+        for seed in [0, 1, 2, 3, 4][:n_models]:
+            print(f"Training {split_name}-level, {feature_name}-feature {model_name} for {lang}")
+            random.seed(seed)
+            torch.manual_seed(seed)
+            model_full_name = f"{model_name}-{split_name}-{feature_name}"
+
+            micro_in_best_macro, best_macro, model = train_model(
+                model_for_config(mk_model, embed_features, train, cfg, device),
+                f"{model_full_name}-{lang}", cfg, epochs, train,
+                valid, device, best_ever_macro_f1=best_ever_macro_f1, use_ray=False
+            )
+
+            out_dir = os.environ.get("MODEL_OUT_DIR")
+            if out_dir:
+                out_dir = os.path.join(out_dir, model_full_name)
+                name = f"{model_full_name}-{lang}-seed-{seed}-final-epoch-{epochs}"
+                os.makedirs(out_dir, exist_ok=True)
+
+                print(f"Saving model because training is done")
+
+                with open(os.path.join(out_dir, name) + ".pt", "wb") as f:
+                    torch.save(EncapsulatedModel(name, model, train), f)
+
+                # TODO fix
+                with open(os.path.join(out_dir, "results-" + name) + ".txt", "w") as f:
+                    f.write("morphemes\ttarget\tprediction\n")
+                    for row in predict_for_test_set(model, valid):
+                        f.write(
+                            "_".join(row["morphemes"]) + "\t" +
+                            "_".join(row["expected_tags"]) + "\t" +
+                            "_".join(row["predicted_tags"]) + "\n"
+                        )
+
+            macros.append(best_macro)
+            micros.append(micro_in_best_macro)
+
+            if best_macro >= best_ever_macro_f1:
+                best_ever_macro_f1 = best_macro
+        print(f"{lang} mean macro across {n_models} seeds:", float(sum(macros)) / n_models)
+        print(f"{lang} best macro across {n_models} seeds:", max(macros))
+        print(f"{lang} mean micro across {n_models} seeds:", float(sum(micros)) / n_models)

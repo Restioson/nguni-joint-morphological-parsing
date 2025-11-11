@@ -1,0 +1,70 @@
+sum(probs) / len(probs). segment_79.pt. bilstm-words-morpheme-ZU-925.pt
+
+
+
+train, valid, test len: 39483 4659 4955
+  0%|          | 0/73 [00:00<?, ?it/s]
+
+k = 1
+100%|██████████| 73/73 [00:31<00:00,  2.28it/s]
+  0%|          | 0/73 [00:00<?, ?it/s]3667 4659
+Gold tag hitrate = 0.52
+4659
+58.98% analysis lattice coverage (seg + parse)
+2 incorrect examples with numbers or punctuation out of 73 errors total
+If these errors were fixed, then analysis lattice coverage would be 59.03
+78.71% segmentation lattice coverage (seg only)
+60.27% tag lattice coverage (tag only)
+Analysis lattice HR@k=1 on the greedy best choice of segmentation: 58.98%
+
+
+k = 2
+100%|██████████| 73/73 [00:50<00:00,  1.46it/s]
+  0%|          | 0/73 [00:00<?, ?it/s]4141 4659
+Gold tag hitrate = 0.52
+4659
+64.69% analysis lattice coverage (seg + parse)
+2 incorrect examples with numbers or punctuation out of 73 errors total
+If these errors were fixed, then analysis lattice coverage would be 64.73
+88.88% segmentation lattice coverage (seg only)
+66.09% tag lattice coverage (tag only)
+Analysis lattice HR@k=1 on the greedy best choice of segmentation: 58.98%
+
+
+k = 3
+100%|██████████| 73/73 [01:13<00:00,  1.00s/it]
+  0%|          | 0/73 [00:00<?, ?it/s]4223 4659
+Gold tag hitrate = 0.52
+4659
+65.72% analysis lattice coverage (seg + parse)
+2 incorrect examples with numbers or punctuation out of 73 errors total
+If these errors were fixed, then analysis lattice coverage would be 65.77
+90.64% segmentation lattice coverage (seg only)
+67.72% tag lattice coverage (tag only)
+Analysis lattice HR@k=1 on the greedy best choice of segmentation: 58.98%
+
+
+k = 4
+100%|██████████| 73/73 [02:08<00:00,  1.76s/it]
+  0%|          | 0/73 [00:00<?, ?it/s]4260 4659
+Gold tag hitrate = 0.52
+4659
+66.11% analysis lattice coverage (seg + parse)
+2 incorrect examples with numbers or punctuation out of 73 errors total
+If these errors were fixed, then analysis lattice coverage would be 66.15
+91.44% segmentation lattice coverage (seg only)
+68.51% tag lattice coverage (tag only)
+Analysis lattice HR@k=1 on the greedy best choice of segmentation: 58.98%
+
+
+k = 5
+100%|██████████| 73/73 [03:13<00:00,  2.66s/it]
+4276 4659
+Gold tag hitrate = 0.52
+4659
+66.26% analysis lattice coverage (seg + parse)
+2 incorrect examples with numbers or punctuation out of 73 errors total
+If these errors were fixed, then analysis lattice coverage would be 66.30
+91.78% segmentation lattice coverage (seg only)
+68.83% tag lattice coverage (tag only)
+Analysis lattice HR@k=1 on the greedy best choice of segmentation: 58.98%
