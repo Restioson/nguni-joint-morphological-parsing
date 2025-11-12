@@ -1070,10 +1070,14 @@ def do_tune_parse():
     # cfg = other
 
     # train(Seq2Seq.from_config(vocab, cfg, device), cfg,"testing_seg", train_dataset, valid_dataset, device)
-    tune_model(lambda conf, dev: Seq2Seq.from_config(vocab, conf, dev), search_space, "parse_bayesopt_prune", fixed_cfg, train_dataset, valid_dataset, cpus=int(os.environ.get("RAY_CPUS") or 1), hrs=24)
+    tune_model(lambda conf, dev: Seq2Seq.from_config(vocab, conf, dev), search_space, "parse_bayesopt", fixed_cfg, train_dataset, valid_dataset, cpus=int(os.environ.get("RAY_CPUS") or 1), hrs=24)
 
 
 if __name__ == "__main__":
     # do_train_parse()
     # do_train_seg()
     do_tune_parse()
+
+
+# Best bayes on tune parse, 30 epoch
+# Current best trial: 0613fc6e with loss=0.14888812676072122 and params={'hidden_dim_per_head': 45.18525423955908, 'layers': 2.761549392895106, 'heads': 6.145521235586304, 'encoder_pf_dim': 1277.1666873192985, 'decoder_pf_head': 1953.0961800896232, 'encoder_dropout': 0.20901048079735057, 'decoder_dropout': 0.23025335953340642, 'lr': 0.0008, 'gradient_clip': 2.680819135276812, 'batch_size': 64, 'valid_batch_size': 512, 'max_epochs': 30}
