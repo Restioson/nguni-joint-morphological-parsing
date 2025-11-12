@@ -9,7 +9,7 @@ dependencies = [
     "ray[tune,train]",
     "tqdm",
     "matplotlib>=3.10.7",
-    "bayesian-optimization",
+    "bayesian-optimization==1.2.0",
 
     "evaluation-utils",
     "annotated-corpus-dataset",
