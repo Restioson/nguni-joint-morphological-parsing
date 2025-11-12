@@ -1017,7 +1017,7 @@ def do_tune_parse():
         "decoder_pf_head": tune.qrandint(128, 2048),
         "encoder_dropout": tune.uniform(0.0, 0.4),
         "decoder_dropout": tune.uniform(0.0, 0.4),
-        "lr": tune.loguniform(1e-6, 8e-4),
+        "lr": tune.loguniform(1e-6, 1e-3),
         "gradient_clip": tune.uniform(1, 10),
         **fixed_cfg
     }
@@ -1070,7 +1070,7 @@ def do_tune_parse():
     # cfg = other
 
     # train(Seq2Seq.from_config(vocab, cfg, device), cfg,"testing_seg", train_dataset, valid_dataset, device)
-    tune_model(lambda conf, dev: Seq2Seq.from_config(vocab, conf, dev), search_space, "parse_bayesopt", fixed_cfg, train_dataset, valid_dataset, cpus=int(os.environ.get("RAY_CPUS") or 1), hrs=24)
+    tune_model(lambda conf, dev: Seq2Seq.from_config(vocab, conf, dev), search_space, "parse_bayesopt2", fixed_cfg, train_dataset, valid_dataset, cpus=int(os.environ.get("RAY_CPUS") or 1), hrs=24)
 
 
 if __name__ == "__main__":
