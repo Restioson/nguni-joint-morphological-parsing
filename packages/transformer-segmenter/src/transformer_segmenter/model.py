@@ -16,13 +16,12 @@ from ray.tune import Checkpoint, get_checkpoint, CheckpointConfig
 from ray import tune
 from ray.tune.search import ConcurrencyLimiter
 from ray.tune.search.bayesopt import BayesOptSearch
-from ray.tune.search.hyperopt import HyperOptSearch
 from ray.tune.search.sample import Integer
 from ray.tune.stopper import FunctionStopper
 from sklearn.metrics import f1_score
 from torch.utils.data import DataLoader, BatchSampler, RandomSampler, SequentialSampler
 
-from annotated_corpus_dataset import split_sentences, split_words
+from annotated_corpus_dataset import split_words
 from annotated_corpus_dataset.segmentation_tokenizers import CharacterInputTokenizerBuilder, \
     CharacterOutputTokenizerBuilder
 from evaluation_utils.aligned_set_multiset import eval_model_aligned_multiset, eval_model_aligned_set
@@ -1024,10 +1023,10 @@ def do_tune_parse():
     # cfg = other
 
     # train(Seq2Seq.from_config(vocab, cfg, device), cfg,"testing_seg", train_dataset, valid_dataset, device)
-    tune_model(lambda conf, dev: Seq2Seq.from_config(vocab, conf, dev), search_space, "testing_parse_hyperopt", fixed_cfg, train_dataset, valid_dataset, cpus=1, hrs=24)
+    tune_model(lambda conf, dev: Seq2Seq.from_config(vocab, conf, dev), search_space, "parse_bayesopt", fixed_cfg, train_dataset, valid_dataset, cpus=os.environ["RAY_CPUS"] or 1, hrs=24)
 
 
 if __name__ == "__main__":
-    do_train_parse()
+    # do_train_parse()
     # do_train_seg()
-    # do_tune_parse()
+    do_tune_parse()
