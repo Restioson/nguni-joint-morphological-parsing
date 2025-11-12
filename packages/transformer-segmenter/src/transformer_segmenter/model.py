@@ -663,7 +663,7 @@ def tune_model(model_for_config, search_space, name: str, fixed_cfg, train_set: 
 
     ray.init(num_cpus=cpus)
 
-    algo = BayesOptSearch(space=search_space, metric="loss", mode="min")
+    algo = BayesOptSearch(metric="loss", mode="min")
     algo = ConcurrencyLimiter(algo, max_concurrent=cpus)
 
     # Move the trainset & validset into shared memory (they are very large)
@@ -692,7 +692,7 @@ def tune_model(model_for_config, search_space, name: str, fixed_cfg, train_set: 
         resume=True,
         mode="min",
         resources_per_trial={"gpu": 1.0 / cpus} if torch.cuda.is_available() else None,
-        # config=search_space,
+        config=search_space_to_float,
         num_samples=100,
         time_budget_s=hrs * 60 * 60,
         search_alg=algo,
@@ -970,7 +970,7 @@ def do_tune_parse():
         "decoder_pf_head": tune.qrandint(128, 2048),
         "encoder_dropout": tune.uniform(0.0, 0.4),
         "decoder_dropout": tune.uniform(0.0, 0.4),
-        "lr": tune.uniform(1e-6, 8e-4),
+        "lr": tune.loguniform(1e-6, 8e-4),
         "gradient_clip": tune.uniform(1, 10),
         **fixed_cfg
     }
