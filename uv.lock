@@ -53,6 +53,21 @@ wheels = [
 ]
 
 [[package]]
+name = "bayesian-optimization"
+version = "3.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "colorama" },
+    { name = "numpy" },
+    { name = "scikit-learn" },
+    { name = "scipy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f2/fe/76dfb4c2c7a41b136b484a3de20aae62cd1c7c8eef4d84ebe2e627a7c836/bayesian_optimization-3.1.0.tar.gz", hash = "sha256:3730f714ba99cefe78b4ee9c62f64e1078340919840d20cd257f58a1027012f6", size = 31292, upload-time = "2025-07-24T15:58:43.497Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2f/7b/894dc80becb0cde4e099d603a6064d0e1acd26f81a933fdc443e1b664968/bayesian_optimization-3.1.0-py3-none-any.whl", hash = "sha256:c5547cb49878f1e8d1d5235ef54646feaec7cd161f98d35c24ec16b0ef6a5162", size = 36443, upload-time = "2025-07-24T15:58:42.373Z" },
+]
+
+[[package]]
 name = "certifi"
 version = "2025.10.5"
 source = { registry = "https://pypi.org/simple" }
@@ -91,15 +106,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/46/61/de6cd827efad202d7057d93e0fed9294b96952e188f7384832791c7b2254/click-8.3.0.tar.gz", hash = "sha256:e7b8232224eba16f4ebe410c25ced9f7875cb5f3263ffc93cc3e8da705e229c4", size = 276943, upload-time = "2025-09-18T17:32:23.696Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/db/d3/9dcc0f5797f070ec8edf30fbadfb200e71d9db6b84d211e3b2085a7589a0/click-8.3.0-py3-none-any.whl", hash = "sha256:9b9f285302c6e3064f4330c05f05b81945b2a39544279343e6e7c5f27a9baddc", size = 107295, upload-time = "2025-09-18T17:32:22.42Z" },
-]
-
-[[package]]
-name = "cloudpickle"
-version = "3.1.2"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/27/fb/576f067976d320f5f0114a8d9fa1215425441bb35627b1993e5afd8111e5/cloudpickle-3.1.2.tar.gz", hash = "sha256:7fda9eb655c9c230dab534f1983763de5835249750e85fbcef43aaa30a9a2414", size = 22330, upload-time = "2025-11-03T09:25:26.604Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/88/39/799be3f2f0f38cc727ee3b4f1445fe6d5e4133064ec2e4115069418a5bb6/cloudpickle-3.1.2-py3-none-any.whl", hash = "sha256:9acb47f6afd73f60dc1df93bb801b472f05ff42fa6c84167d25cb206be1fbf4a", size = 22228, upload-time = "2025-11-03T09:25:25.534Z" },
 ]
 
 [[package]]
@@ -205,33 +211,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/de/e0/bab50af11c2d75c9c4a2a26a5254573c0bd97cea152254401510950486fa/fsspec-2025.9.0.tar.gz", hash = "sha256:19fd429483d25d28b65ec68f9f4adc16c17ea2c7c7bf54ec61360d478fb19c19", size = 304847, upload-time = "2025-09-02T19:10:49.215Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/47/71/70db47e4f6ce3e5c37a607355f80da8860a33226be640226ac52cb05ef2e/fsspec-2025.9.0-py3-none-any.whl", hash = "sha256:530dc2a2af60a414a832059574df4a6e10cce927f6f4a78209390fe38955cfb7", size = 199289, upload-time = "2025-09-02T19:10:47.708Z" },
-]
-
-[[package]]
-name = "future"
-version = "1.0.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/a7/b2/4140c69c6a66432916b26158687e821ba631a4c9273c474343badf84d3ba/future-1.0.0.tar.gz", hash = "sha256:bd2968309307861edae1458a4f8a4f3598c03be43b97521076aebf5d94c07b05", size = 1228490, upload-time = "2024-02-21T11:52:38.461Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/da/71/ae30dadffc90b9006d77af76b393cb9dfbfc9629f339fc1574a1c52e6806/future-1.0.0-py3-none-any.whl", hash = "sha256:929292d34f5872e70396626ef385ec22355a1fae8ad29e1a734c3e43f9fbc216", size = 491326, upload-time = "2024-02-21T11:52:35.956Z" },
-]
-
-[[package]]
-name = "hyperopt"
-version = "0.2.5"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "cloudpickle" },
-    { name = "future" },
-    { name = "networkx" },
-    { name = "numpy" },
-    { name = "scipy" },
-    { name = "six" },
-    { name = "tqdm" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/1c/ec/8e388ca833771b7a8087794d34c0f42168c8d612a236853f8de84e4c4825/hyperopt-0.2.5.tar.gz", hash = "sha256:bc6047d50f956ae64eebcb34b1fd40f186a93e214957f20e87af2f10195295cc", size = 931279, upload-time = "2020-10-07T09:52:58.871Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/a6/07/bd524635d218adae139be320eeac87fb4fbbd45c63b0bd58930c9e91f1fc/hyperopt-0.2.5-py2.py3-none-any.whl", hash = "sha256:dc5c7cceaf33c125b727cf92709e70035d94dd507831dae66406ac762a18a253", size = 965972, upload-time = "2020-10-07T09:52:56.711Z" },
 ]
 
 [[package]]
@@ -980,8 +959,8 @@ version = "0.1.0"
 source = { editable = "packages/transformer-segmenter" }
 dependencies = [
     { name = "annotated-corpus-dataset" },
+    { name = "bayesian-optimization" },
     { name = "evaluation-utils" },
-    { name = "hyperopt" },
     { name = "matplotlib" },
     { name = "numpy" },
     { name = "ray", extra = ["train", "tune"] },
@@ -993,8 +972,8 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "annotated-corpus-dataset", editable = "packages/annotated-corpus-dataset" },
+    { name = "bayesian-optimization" },
     { name = "evaluation-utils", editable = "packages/evaluation-utils" },
-    { name = "hyperopt", specifier = "==0.2.5" },
     { name = "matplotlib", specifier = ">=3.10.7" },
     { name = "numpy", specifier = ">=2.3.3" },
     { name = "ray", extras = ["tune", "train"] },

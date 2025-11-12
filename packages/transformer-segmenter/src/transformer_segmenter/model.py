@@ -12,9 +12,10 @@ import ray
 import torch
 import torch.nn as nn
 import tqdm
-from ray.tune import Checkpoint, get_checkpoint
+from ray.tune import Checkpoint, get_checkpoint, CheckpointConfig
 from ray import tune
 from ray.tune.search import ConcurrencyLimiter
+from ray.tune.search.bayesopt import BayesOptSearch
 from ray.tune.search.hyperopt import HyperOptSearch
 from ray.tune.search.sample import Integer
 from ray.tune.stopper import FunctionStopper
@@ -565,7 +566,7 @@ def train(model, cfg, name: str, train_dataset: TransformerDataset, valid_datase
         print("Exiting early... model too big!")
         checkpoint_data = {
             "epoch": 0,
-            "valid_loss": max_loss,
+            "loss": max_loss,
         }
 
         with tempfile.TemporaryDirectory() as checkpoint_dir:
@@ -581,7 +582,7 @@ def train(model, cfg, name: str, train_dataset: TransformerDataset, valid_datase
 
     # Specify learning rate and optimisation function
     lr = cfg["lr"]
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     criterion = nn.CrossEntropyLoss(ignore_index=vocab.output_pad_ix)
     n_epochs = cfg["max_epochs"]
     gradient_clip = cfg["gradient_clip"]
@@ -639,7 +640,7 @@ def train(model, cfg, name: str, train_dataset: TransformerDataset, valid_datase
         if use_ray:
             checkpoint_data = {
                 "epoch": epoch,
-                "valid_loss": valid_loss,
+                "loss": valid_loss,
                 "best_epoch": best_valid_loss_epoch,
                 "best_valid_loss": best_valid_loss,
                 "model_state_dict": model.state_dict(),
@@ -663,16 +664,8 @@ def tune_model(model_for_config, search_space, name: str, fixed_cfg, train_set: 
 
     ray.init(num_cpus=cpus)
 
-    algo = HyperOptSearch(space=HyperOptSearch.convert_search_space(search_space), metric="loss", mode="min")
+    algo = BayesOptSearch(space=search_space, metric="loss", mode="min")
     algo = ConcurrencyLimiter(algo, max_concurrent=cpus)
-
-    # We just use the basic ASHA schedular
-    # scheduler = HyperBandForBOHB(
-    #     time_attr="training_iteration",
-    #     max_t=fixed_cfg["max_epochs"],
-    #     reduction_factor=4,
-    #     stop_last_trials=False,
-    # )
 
     # Move the trainset & validset into shared memory (they are very large)
     train_set, valid_set = ray.put(train_set), ray.put(valid_set)
@@ -704,6 +697,11 @@ def tune_model(model_for_config, search_space, name: str, fixed_cfg, train_set: 
         num_samples=100,
         time_budget_s=hrs * 60 * 60,
         search_alg=algo,
+        checkpoint_config=CheckpointConfig(
+            num_to_keep=3,
+            checkpoint_score_attribute="loss",
+            checkpoint_score_order="min",
+        ),
         storage_path=str(Path(os.environ["TUNING_CHECKPOINT_DIR"]).resolve()),
         trial_dirname_creator=lambda trial: trial.trial_id,
         # scheduler=scheduler,
@@ -878,6 +876,26 @@ def do_train_seg():
     model = Seq2Seq.from_config(train_dataset.vocabulary, cfg, device=device)
     train(model, cfg, "segmenter-zu", train_dataset, valid_dataset, device, SequenceAlignment.ALIGNED_MULTISET)
 
+# TODO too big what to do? - trim size? reduce some things?
+    # Trial do_train_0caf1444 started with configuration:
+    # ╭────────────────────────────────────────────╮
+    # │ Trial do_train_0caf1444 config             │
+    # ├────────────────────────────────────────────┤
+    # │ batch_size                              64 │
+    # │ decoder_dropout                     0.0919 │
+    # │ decoder_pf_head                       2019 │
+    # │ encoder_dropout                     0.0289 │
+    # │ encoder_pf_dim                         805 │
+    # │ gradient_clip                      5.25259 │
+    # │ heads                                    7 │
+    # │ hidden_dim_per_head                    268 │
+    # │ layers                                   1 │
+    # │ lr                                 0.00078 │
+    # │ max_epochs                              30 │
+    # │ valid_batch_size                       512 │
+    # ╰────────────────────────────────────────────╯
+
+
 def do_train_parse():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     # device = torch.device('cpu')
@@ -901,11 +919,15 @@ def do_train_parse():
         "valid_batch_size": 32,
     }
 
-    cfg = {
-        'hidden_dim_per_head': 56, 'layers': 4, 'heads': 6,
-     'encoder_pf_dim': 1277, 'decoder_pf_head': 1953, 'encoder_dropout': 0.292797576724562,
-     'decoder_dropout': 0.149816047538945, 'lr': 0.00048129089438282387, 'gradient_clip': 2.4041677639819286,
-     'batch_size': 64, 'valid_batch_size': 256, 'max_epochs': 150}
+    cfg = {**Seq2Seq.DEFAULT_CONFIG, "decoder_pf_head": 2019, "encoder_pf_dim": 805, "heads": 7, "hidden_dim_per_head": 268, "layers": 1}
+
+    # best per bayesopt
+    # cfg = {
+    #     'hidden_dim_per_head': 56, 'layers': 4, 'heads': 6,
+    #  'encoder_pf_dim': 1277, 'decoder_pf_head': 1953, 'encoder_dropout': 0.292797576724562,
+    #  'decoder_dropout': 0.149816047538945, 'lr': 0.00048129089438282387, 'gradient_clip': 2.4041677639819286,
+    #  'batch_size': 64, 'valid_batch_size': 256, 'max_epochs': 150}
+
 
     # TODO where is te tag in the input rel. to the output?
     # TODO segment only at a sentence level?
@@ -924,7 +946,7 @@ def do_train_parse():
 
     train_dataset, valid_dataset = portions["train"], portions["dev"]
     model = Seq2Seq.from_config(train_dataset.vocabulary, cfg, device=device)
-    train(model, cfg, "parser-zu-sentences", train_dataset, valid_dataset, device, SequenceAlignment.ALIGNED_MULTISET)
+    train(model, cfg, "hyperopt-big", train_dataset, valid_dataset, device, SequenceAlignment.ALIGNED_MULTISET)
 
 def do_tune_parse():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -1006,6 +1028,6 @@ def do_tune_parse():
 
 
 if __name__ == "__main__":
-    # do_train_parse()
+    do_train_parse()
     # do_train_seg()
-    do_tune_parse()
+    # do_tune_parse()
