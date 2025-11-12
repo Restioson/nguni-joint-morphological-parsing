@@ -54,14 +54,18 @@ wheels = [
 
 [[package]]
 name = "bayesian-optimization"
-version = "1.2.0"
+version = "1.5.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
+    { name = "colorama" },
     { name = "numpy" },
     { name = "scikit-learn" },
     { name = "scipy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/bb/7a/fd8059a3881d3ab37ac8f72f56b73937a14e8bb14a9733e68cc8b17dbe3c/bayesian-optimization-1.2.0.tar.gz", hash = "sha256:c2fd3af4b6cc24ee1c145295b2a900ffb9b455cad924e8185a8d5784712bc935", size = 14057, upload-time = "2020-05-16T15:56:09.198Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/48/9d/006cb952083689a487a7e93e44f504a59bb3361f300f8272f325f270820e/bayesian_optimization-1.5.1.tar.gz", hash = "sha256:a83590b64b57a8e4508424629c817b1c41f89b76c9254dc60aa313505df389b0", size = 29501, upload-time = "2024-07-10T12:02:37.329Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c5/fd/5998d2f9d693b5ef2954e3d9ddb96ede395373faa5d9bcfbd7da4b945d47/bayesian_optimization-1.5.1-py3-none-any.whl", hash = "sha256:098946c933d6039073b7ccb0c9f1b4c73ac6e39350043b02e5243b08583c4c5c", size = 28373, upload-time = "2024-07-10T12:02:35.595Z" },
+]
 
 [[package]]
 name = "certifi"
@@ -968,7 +972,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "annotated-corpus-dataset", editable = "packages/annotated-corpus-dataset" },
-    { name = "bayesian-optimization", specifier = "==1.2.0" },
+    { name = "bayesian-optimization", specifier = "~=1.5.0" },
     { name = "evaluation-utils", editable = "packages/evaluation-utils" },
     { name = "matplotlib", specifier = ">=3.10.7" },
     { name = "numpy", specifier = ">=2.3.3" },

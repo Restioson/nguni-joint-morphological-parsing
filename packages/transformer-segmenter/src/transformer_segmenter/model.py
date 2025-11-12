@@ -1,12 +1,15 @@
 import csv
+import glob
 import math
 import os
 import pickle
 import re
+import shutil
 import tempfile
 import time
 from enum import Enum
 from pathlib import Path
+from typing import Optional
 
 import ray
 import torch
@@ -14,6 +17,9 @@ import torch.nn as nn
 import tqdm
 from ray.tune import Checkpoint, get_checkpoint, CheckpointConfig
 from ray import tune
+from ray.tune.execution.tune_controller import TuneController
+from ray.tune.experiment import Trial
+from ray.tune.schedulers import FIFOScheduler
 from ray.tune.search import ConcurrencyLimiter
 from ray.tune.search.bayesopt import BayesOptSearch
 from ray.tune.search.sample import Integer
@@ -574,7 +580,7 @@ def train(model, cfg, name: str, train_dataset: TransformerDataset, valid_datase
                 pickle.dump(checkpoint_data, fp)
 
             checkpoint = Checkpoint.from_directory(checkpoint_dir)
-            ray.train.report(
+            ray.tune.report(
                 {"loss": max_loss},
                 checkpoint=checkpoint,
             )
@@ -652,10 +658,46 @@ def train(model, cfg, name: str, train_dataset: TransformerDataset, valid_datase
                     pickle.dump(checkpoint_data, fp)
 
                 checkpoint = Checkpoint.from_directory(checkpoint_dir)
-                ray.train.report(
+                ray.tune.report(
                     {"loss": valid_loss},
                     checkpoint=checkpoint,
                 )
+
+
+class BadTrialDeleterScheduler(FIFOScheduler):
+    def __init__(self, checkpoint_dir, keep_trials=3):
+        super().__init__()
+        self.finished_trial_performances: list[tuple[Trial, float]] = list()
+        self.mode = None
+        self.keep_trials = keep_trials
+        self.checkpoint_dir = checkpoint_dir
+
+    def set_search_properties(self, metric: Optional[str], mode: Optional[str], **spec):
+        # For some reason, not set in the base class (TrialScheduler)
+        if mode:
+            self.mode = mode
+
+        return super().set_search_properties(metric, mode)
+
+    def on_trial_add(self, tune_controller: "TuneController", trial: Trial):
+        # Handle resuming
+        if trial.is_finished() and trial.last_result:
+            self.on_trial_complete(tune_controller, trial, trial.last_result)
+
+    def on_trial_complete(
+        self, tune_controller: TuneController, trial: Trial, result: dict
+    ):
+        trials = self.finished_trial_performances
+        trials.append((trial, result[self.metric]))
+        trials = sorted(trials, reverse=self.mode == "max", key=lambda trial_and_metric: trial_and_metric[1])
+        self.finished_trial_performances, delete = trials[:self.keep_trials], trials[self.keep_trials:]
+
+        for trial, _metric in delete:
+            print(f"Deleting checkpoints for {trial}")
+            for checkpoint_dir in glob.glob(str(Path(trial.storage.trial_fs_path) / "checkpoint_*")):
+                shutil.rmtree(checkpoint_dir)
+
+        return super().on_trial_complete(tune_controller, trial, result)
 
 def tune_model(model_for_config, search_space, name: str, fixed_cfg, train_set: TransformerDataset,
                valid_set: TransformerDataset, cpus=4, hrs=11, max_loss=10):
@@ -684,7 +726,10 @@ def tune_model(model_for_config, search_space, name: str, fixed_cfg, train_set: 
         conf = {param : (val if param not in int_params else round(val)) for param, val in conf.items()}
         return train(model_for_config(conf, device), conf, name, ray.get(train_set), ray.get(valid_set), device, use_ray=True, max_loss=max_loss)
 
+    checkpoint_dir = Path(os.environ["TUNING_CHECKPOINT_DIR"]).resolve()
+
     # Do the hyperparameter tuning
+    # TODO custom TrialScheduler to delete bad trials?
     result = tune.run(
         do_train,
         metric="loss",
@@ -701,9 +746,9 @@ def tune_model(model_for_config, search_space, name: str, fixed_cfg, train_set: 
             checkpoint_score_attribute="loss",
             checkpoint_score_order="min",
         ),
-        storage_path=str(Path(os.environ["TUNING_CHECKPOINT_DIR"]).resolve()),
+        scheduler=BadTrialDeleterScheduler(checkpoint_dir),
+        storage_path=str(checkpoint_dir),
         trial_dirname_creator=lambda trial: trial.trial_id,
-        # scheduler=scheduler,
         stop=FunctionStopper(lambda trial_id, results: results["loss"] >= max_loss)
     )
 
@@ -728,7 +773,7 @@ def tune_model(model_for_config, search_space, name: str, fixed_cfg, train_set: 
         best_model = model_for_config(conf, device)
         best_model = best_model.to(device)
 
-        best_checkpoint = result.get_best_checkpoint(trial=best_trial, metric=metric, mode="max")
+        best_checkpoint = result.get_best_checkpoint(trial=best_trial, metric=metric, mode="min")
         with best_checkpoint.as_directory() as checkpoint_dir:
             data_path = Path(checkpoint_dir) / "data.pkl"
             with open(data_path, "rb") as fp:
@@ -737,9 +782,9 @@ def tune_model(model_for_config, search_space, name: str, fixed_cfg, train_set: 
             best_model.load_state_dict(best_checkpoint_data["model_state_dict"])
             f1_micro, f1_macro, hr_at_1 = f1_scores(valid_loader, best_model, SequenceAlignment.ALIGNED_MULTISET)
             print(f" {name}: Micro F1: {f1_micro}. Macro f1: {f1_macro}. Hit-rate @ 1: {hr_at_1 * 100:.2f}%")
-            print(
-                f" {name}: Best macro f1: {best_checkpoint_data['best_macro']} at epoch "
-                f"{best_checkpoint_data['best_epoch']}")
+            # print(
+            #     f" {name}: Best macro f1: {best_checkpoint_data['best_macro']} at epoch "
+            #     f"{best_checkpoint_data['best_epoch']}")
 
 
 # def segment_and_tag_unseen():
@@ -960,8 +1005,10 @@ def do_tune_parse():
         device=device,
     )
 
+    # TODO scheduler with patience?
+
     # TODO _try_ a grid search
-    fixed_cfg = {"batch_size": 64, "valid_batch_size": 512, "max_epochs": 30}
+    fixed_cfg = {"batch_size": 64, "valid_batch_size": 512, "max_epochs": 1}
     search_space = {
         "hidden_dim_per_head": tune.qrandint(16, 512),
         "layers": tune.qrandint(1, 5),
@@ -1023,7 +1070,7 @@ def do_tune_parse():
     # cfg = other
 
     # train(Seq2Seq.from_config(vocab, cfg, device), cfg,"testing_seg", train_dataset, valid_dataset, device)
-    tune_model(lambda conf, dev: Seq2Seq.from_config(vocab, conf, dev), search_space, "parse_bayesopt", fixed_cfg, train_dataset, valid_dataset, cpus=int(os.environ.get("RAY_CPUS") or 1), hrs=24)
+    tune_model(lambda conf, dev: Seq2Seq.from_config(vocab, conf, dev), search_space, "parse_bayesopt_prune", fixed_cfg, train_dataset, valid_dataset, cpus=int(os.environ.get("RAY_CPUS") or 1), hrs=24)
 
 
 if __name__ == "__main__":
