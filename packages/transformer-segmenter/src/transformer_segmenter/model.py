@@ -1019,7 +1019,7 @@ def do_tune_parse():
         "decoder_dropout": tune.uniform(0.0, 0.4),
         "lr": tune.loguniform(1e-6, 1e-3),
         "gradient_clip": tune.uniform(1, 100),
-        "weight_decay": tune.uniform(0, 1)
+        "weight_decay": tune.uniform(0, 1),
         **fixed_cfg
     }
 
