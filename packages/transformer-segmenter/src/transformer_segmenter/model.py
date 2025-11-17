@@ -595,6 +595,10 @@ def train(model, cfg, name: str, train_dataset: TransformerDataset, valid_datase
     valid_batch_size = cfg["valid_batch_size"]
     start_epoch = 0
 
+    best_valid_loss = float('inf')
+    best_valid_loss_epoch = 0
+
+
     if use_ray:
         checkpoint = get_checkpoint()
         if checkpoint:
@@ -603,6 +607,8 @@ def train(model, cfg, name: str, train_dataset: TransformerDataset, valid_datase
                 with open(data_path, "rb") as fp:
                     checkpoint_state = pickle.load(fp)
                 start_epoch = checkpoint_state["epoch"]
+                best_valid_loss = checkpoint_state["best_valid_loss"]
+                best_valid_loss_epoch = checkpoint_state["best_epoch"]
                 model.load_state_dict(checkpoint_state["model_state_dict"])
                 optimizer.load_state_dict(checkpoint_state["optimizer_state_dict"])
 
@@ -618,9 +624,6 @@ def train(model, cfg, name: str, train_dataset: TransformerDataset, valid_datase
         collate_fn=valid_dataset.collate,
     )
 
-    best_valid_loss = float('inf')
-    best_valid_loss_epoch = 0
-
     # Training loop for N_Epochs
     for epoch in tqdm.tqdm(range(start_epoch, n_epochs)):
         start_time = time.time()
@@ -629,10 +632,12 @@ def train(model, cfg, name: str, train_dataset: TransformerDataset, valid_datase
         end_time = time.time()
         epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 
-        if not use_ray and valid_loss < best_valid_loss:
+        if valid_loss < best_valid_loss:
             best_valid_loss = valid_loss
             best_valid_loss_epoch = epoch
-            torch.save(model.state_dict(), f'{name}.pt')
+
+            if not use_ray:
+                torch.save(model.state_dict(), f'{name}.pt')
 
         print(f'Epoch: {epoch + 1:02} | Time: {epoch_mins}m {epoch_secs}s')
         print(f'\tTrain Loss: {train_loss:.3f} | Train PPL: {math.exp(train_loss):7.3f}')
