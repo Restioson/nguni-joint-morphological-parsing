@@ -13,6 +13,7 @@ from annotated_corpus_dataset import ParsingPipelineDataset, SEQ_PAD_IX, \
     EncodedParsingDatasetBatch, split_words, EncodedJointParsingDatasetBatch
 from annotated_corpus_dataset.segmentation_tokenizers import CharacterInputTokenizerBuilder, \
     CharacterOutputTokenizerBuilder
+from evaluation_utils.aligned_set_multiset import eval_model_aligned_multiset
 from from_scratch_tagger.encapsulated_model import load_model, predict_tags_for_words_batched
 from transformer_segmenter.dataset import TransformerDataset, TransformerSegmentationDataset, \
     TransformerJointEndToEndParsingDataset, TransformerDatasetBatch
@@ -325,7 +326,7 @@ def beam_search_joint():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     portions = TransformerJointEndToEndParsingDataset.load_data(
-        "ZU",
+        "zu",
         Path("data/processed"),
         CharacterInputTokenizerBuilder(),
         CharacterOutputTokenizerBuilder(),
@@ -333,11 +334,7 @@ def beam_search_joint():
         device,
     )
 
-    cfg ={
-        'hidden_dim_per_head': 56, 'layers': 4, 'heads': 6,
-     'encoder_pf_dim': 1277, 'decoder_pf_head': 1953, 'encoder_dropout': 0.292797576724562,
-     'decoder_dropout': 0.149816047538945, 'lr': 0.00048129089438282387, 'gradient_clip': 2.4041677639819286,
-     'batch_size': 64, 'valid_batch_size': 256, 'max_epochs': 150}
+    cfg = {'hidden_dim_per_head': 45, 'layers': 3, 'heads': 6, 'encoder_pf_dim': 1277, 'decoder_pf_head': 1953, 'encoder_dropout': 0.20901048079735057, 'decoder_dropout': 0.23025335953340642, 'lr': 0.0008, 'gradient_clip': 2.680819135276812, 'batch_size': 64, 'valid_batch_size': 512, 'max_epochs': 150}
 
     train_dataset, valid_dataset = portions["train"], portions["dev"]
     model = TransformerSegmenterBeamSearch(
@@ -358,7 +355,7 @@ def beam_search_joint():
         collate_fn=train_dataset.collate,
     )
 
-    model.load('parser-zu-sentences.pt')
+    model.load('best-so-far-parse.pt')
 
     greedy_acc = 0
 
@@ -383,11 +380,10 @@ def beam_search_joint():
                 raw_words = [sentence[0] for sentence in model.vocab.decode_batched_input_sentences(batch.source)]
                 true_analysis = [sentence[0] for sentence in model.vocab.decode_batched_output_sentences(batch.target)]
 
-
-
                 # Beam-search all analyses for this batch
                 pred_analyses = model.beam_search_words_batched_without_probs(batch.source)
 
+                all_true_tags, all_pred_tags = [], []
 
                 for word in range(batch_size):
                     true_morphemes = [morpheme.split("[")[0] for morpheme in true_analysis[word]]
@@ -399,6 +395,10 @@ def beam_search_joint():
 
                     total += 1
 
+                    if best_k == 1:
+                        all_true_tags.append(true_tags)
+                        all_pred_tags.extend(pred_tags)
+
                     if true_analysis[word] in pred_analyses[word]:
                         analysis_correct += 1
                     else:
@@ -409,6 +409,11 @@ def beam_search_joint():
                             tags_correct += 1
 
                         incorrect[i * batch_size + word] = {"word": raw_words[word][0], "true": (true_analysis[word]), "tried": pred_analyses[word]}
+
+            if best_k == 1:
+                micro, macro = eval_model_aligned_multiset(all_true_tags, all_pred_tags)
+                print(f"Tag F1 micro: {micro*100:.2f}. F1 macro: {macro*100:.2f}")
+
 
             # incorrect_with_punc = [i for i in incorrect.values() if not i["word"].isalpha()]
             # print(f"{len(incorrect_with_punc)} incorrect examples with numbers or punctuation out of"
@@ -429,5 +434,5 @@ def beam_search_joint():
 
 
 if __name__ == "__main__":
-    beam_search_pipeline()
-    # beam_search_joint()
+    # beam_search_pipeline()
+    beam_search_joint()
