@@ -1077,7 +1077,7 @@ def do_tune_parse():
 if __name__ == "__main__":
     # do_train_parse()
     # do_train_seg()
-    do_train_parse()
+    do_tune_parse()
 
 
 # Best bayes on tune parse, 30 epoch
