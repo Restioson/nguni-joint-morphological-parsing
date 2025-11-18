@@ -688,7 +688,7 @@ class BadTrialDeleterScheduler(FIFOScheduler):
         return super().on_trial_complete(tune_controller, trial, result)
 
 def tune_model(model_for_config, search_space, name: str, fixed_cfg, train_set: TransformerDataset,
-               valid_set: TransformerDataset, cpus=4, hrs=22, max_loss=2):
+               valid_set: TransformerDataset, cpus=4, hrs=22, max_loss=2, patience=5):
     """Tune the given model with Ray"""
 
     ray.init(num_cpus=cpus)
@@ -712,7 +712,7 @@ def tune_model(model_for_config, search_space, name: str, fixed_cfg, train_set: 
     def do_train(conf):
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         conf = {param : (val if param not in int_params else round(val)) for param, val in conf.items()}
-        return train(model_for_config(conf, device), conf, name, ray.get(train_set), ray.get(valid_set), device, use_ray=True, max_loss=max_loss)
+        return train(model_for_config(conf, device), conf, name, ray.get(train_set), ray.get(valid_set), device, use_ray=True)
 
     checkpoint_dir = Path(os.environ["TUNING_CHECKPOINT_DIR"]).resolve()
 
@@ -737,7 +737,7 @@ def tune_model(model_for_config, search_space, name: str, fixed_cfg, train_set: 
         scheduler=BadTrialDeleterScheduler(checkpoint_dir),
         storage_path=str(checkpoint_dir),
         trial_dirname_creator=lambda trial: trial.trial_id,
-        stop=FunctionStopper(lambda trial_id, results: results["loss"] >= max_loss)
+        stop=FunctionStopper(lambda trial_id, results: results["loss"] >= max_loss and results["epoch"] >= patience)
     )
 
     valid_set = ray.get(valid_set)
