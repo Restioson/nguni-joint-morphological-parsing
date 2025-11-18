@@ -1014,11 +1014,46 @@ def do_tune_parse():
     vocab = train_dataset.vocabulary
     tune_model(lambda conf, dev: Seq2Seq.from_config(vocab, conf, dev), search_space, "parse_bayesopt4", fixed_cfg, train_dataset, valid_dataset, cpus=int(os.environ.get("RAY_CPUS") or 1), hrs=23)
 
+def do_tune_seg():
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    # device = torch.device('cpu')
+
+    portions = TransformerSegmentationDataset.load_data(
+        "zu",
+        Path("data/processed"),
+        CharacterInputTokenizerBuilder(),
+        CharacterOutputTokenizerBuilder(),
+        split_words,
+        device=device,
+    )
+
+    fixed_cfg = {"batch_size": 32, "valid_batch_size": 512, "max_epochs": 30}
+    search_space = {
+        "hidden_dim_per_head": tune.qrandint(16, 256),
+        "layers": tune.qrandint(1, 6),
+        "heads": tune.qrandint(4, 16),
+        "encoder_pf_dim": tune.qrandint(128, 2048),
+        "decoder_pf_head": tune.qrandint(128, 2048),
+        "encoder_dropout": tune.uniform(0.0, 0.4),
+        "decoder_dropout": tune.uniform(0.0, 0.4),
+        "lr": tune.loguniform(1e-6, 1e-3),
+        "gradient_clip": tune.uniform(1, 100),
+        "weight_decay": tune.uniform(0, 1),
+        **fixed_cfg
+    }
+
+    train_dataset, valid_dataset = portions["train"], portions["dev"]
+    vocab = train_dataset.vocabulary
+    tune_model(lambda conf, dev: Seq2Seq.from_config(vocab, conf, dev), search_space, "seg_bayesopt", fixed_cfg, train_dataset, valid_dataset, cpus=int(os.environ.get("RAY_CPUS") or 1), hrs=23)
 
 if __name__ == "__main__":
     # do_train_parse()
     # do_train_seg()
-    do_tune_parse()
+
+    if os.environ.get("TASK") == "segmentation":
+        do_tune_seg()
+    else:
+        do_tune_parse()
 
 
 # Best bayes on tune parse, 30 epoch
