@@ -1028,7 +1028,7 @@ def do_tune_parse():
     }
 
     train_dataset, valid_dataset = portions["train"], portions["dev"]
-    vocab = train_dataset.vocabular
+    vocab = train_dataset.vocabulary
     tune_model(lambda conf, dev: Seq2Seq.from_config(vocab, conf, dev), search_space, "parse_bayesopt2", fixed_cfg, train_dataset, valid_dataset, cpus=int(os.environ.get("RAY_CPUS") or 1), hrs=23)
 
 
