@@ -1012,8 +1012,7 @@ def do_tune_parse():
 
     # TODO scheduler with patience?
 
-    # TODO _try_ a grid search
-    fixed_cfg = {"batch_size": 32, "valid_batch_size": 512, "max_epochs": 1}
+    fixed_cfg = {"batch_size": 32, "valid_batch_size": 512, "max_epochs": 30}
     search_space = {
         "hidden_dim_per_head": tune.qrandint(16, 256),
         "layers": tune.qrandint(1, 6),
@@ -1029,53 +1028,7 @@ def do_tune_parse():
     }
 
     train_dataset, valid_dataset = portions["train"], portions["dev"]
-    vocab = train_dataset.vocabulary
-    # cfg = {
-    #     "hidden_dim_per_head": 32, # TODO?
-    #     "layers": 4,
-    #     "heads": 8, # TODO?
-    #     "encoder_pf_dim": 512,  # TODO do these just need to be equal?
-    #     "decoder_pf_head": 512,
-    #     "encoder_dropout": 0.1, # TODO?
-    #     "decoder_dropout": 0.1, # TODO?
-    #     "lr": 0.0005, # TODO
-    #     "gradient_clip": 2.40417,
-    #     **fixed_cfg,
-    # }
-
-    cfg = {
-        "hidden_dim_per_head": 44,
-        "layers": 4,
-        "heads": 5,
-        "encoder_pf_dim": 1277,
-        "decoder_pf_head": 1953,
-        "encoder_dropout": 0.29,
-        "decoder_dropout": 0.14,
-        "lr": 6e-4,
-        "gradient_clip": 2.40417,
-        **fixed_cfg,
-    }
-
-    other = {
-        "hidden_dim": 256,  # 220 hidden
-        "encoder_layers": 3, # 4
-        "decoder_layers": 3,
-        "encoder_heads": 8, # 5
-        "decoder_heads": 8,
-        "encoder_pf_dim": 512,  # 1277
-        "decoder_pf_head": 512,  #1953
-        "encoder_dropout": 0.1,  # 0.29
-        "decoder_dropout": 0.1,  # 0.14
-        "lr": 0.0005,   # 0.00120263
-        "max_epochs": 150,
-        "batch_size": 64,
-        "valid_batch_size": 512,
-        "gradient_clip": 1,  # 2
-    }
-
-    # cfg = other
-
-    # train(Seq2Seq.from_config(vocab, cfg, device), cfg,"testing_seg", train_dataset, valid_dataset, device)
+    vocab = train_dataset.vocabular
     tune_model(lambda conf, dev: Seq2Seq.from_config(vocab, conf, dev), search_space, "parse_bayesopt2", fixed_cfg, train_dataset, valid_dataset, cpus=int(os.environ.get("RAY_CPUS") or 1), hrs=23)
 
 
