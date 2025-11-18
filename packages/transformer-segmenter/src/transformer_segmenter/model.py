@@ -688,7 +688,7 @@ class BadTrialDeleterScheduler(FIFOScheduler):
         return super().on_trial_complete(tune_controller, trial, result)
 
 def tune_model(model_for_config, search_space, name: str, fixed_cfg, train_set: TransformerDataset,
-               valid_set: TransformerDataset, cpus=4, hrs=22, max_loss=2, patience=5):
+               valid_set: TransformerDataset, cpus=4, hrs=22, max_loss=5, patience=5):
     """Tune the given model with Ray"""
 
     ray.init(num_cpus=cpus)
@@ -1012,7 +1012,7 @@ def do_tune_parse():
 
     train_dataset, valid_dataset = portions["train"], portions["dev"]
     vocab = train_dataset.vocabulary
-    tune_model(lambda conf, dev: Seq2Seq.from_config(vocab, conf, dev), search_space, "parse_bayesopt3", fixed_cfg, train_dataset, valid_dataset, cpus=int(os.environ.get("RAY_CPUS") or 1), hrs=23)
+    tune_model(lambda conf, dev: Seq2Seq.from_config(vocab, conf, dev), search_space, "parse_bayesopt4", fixed_cfg, train_dataset, valid_dataset, cpus=int(os.environ.get("RAY_CPUS") or 1), hrs=23)
 
 
 if __name__ == "__main__":
