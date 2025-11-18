@@ -705,7 +705,7 @@ class BadTrialDeleterScheduler(FIFOScheduler):
         return super().on_trial_complete(tune_controller, trial, result)
 
 def tune_model(model_for_config, search_space, name: str, fixed_cfg, train_set: TransformerDataset,
-               valid_set: TransformerDataset, cpus=4, hrs=11, max_loss=10):
+               valid_set: TransformerDataset, cpus=4, hrs=22, max_loss=10):
     """Tune the given model with Ray"""
 
     ray.init(num_cpus=cpus)
@@ -743,7 +743,7 @@ def tune_model(model_for_config, search_space, name: str, fixed_cfg, train_set: 
         mode="min",
         resources_per_trial={"gpu": 1.0 / cpus} if torch.cuda.is_available() else None,
         config=search_space_to_float,
-        num_samples=100,
+        num_samples=250,
         time_budget_s=hrs * 60 * 60,
         search_alg=algo,
         checkpoint_config=CheckpointConfig(
