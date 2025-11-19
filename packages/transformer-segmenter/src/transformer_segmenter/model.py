@@ -693,7 +693,7 @@ def tune_model(model_for_config, search_space, name: str, fixed_cfg, train_set: 
 
     ray.init(num_cpus=cpus)
 
-    algo = BayesOptSearch(metric="loss", mode="min")
+    algo = BayesOptSearch(metric="loss", mode="min", random_search_steps=25)
     algo = ConcurrencyLimiter(algo, max_concurrent=cpus)
 
     # Move the trainset & validset into shared memory (they are very large)
@@ -1012,7 +1012,7 @@ def do_tune_parse():
 
     train_dataset, valid_dataset = portions["train"], portions["dev"]
     vocab = train_dataset.vocabulary
-    tune_model(lambda conf, dev: Seq2Seq.from_config(vocab, conf, dev), search_space, "parse_bayesopt4", fixed_cfg, train_dataset, valid_dataset, cpus=int(os.environ.get("RAY_CPUS") or 1), hrs=23)
+    tune_model(lambda conf, dev: Seq2Seq.from_config(vocab, conf, dev), search_space, os.environ.get("EXPERIMENT_NAME") or "parse_bayesopt4", fixed_cfg, train_dataset, valid_dataset, cpus=int(os.environ.get("RAY_CPUS") or 1), hrs=23)
 
 def do_tune_seg():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -1044,7 +1044,7 @@ def do_tune_seg():
 
     train_dataset, valid_dataset = portions["train"], portions["dev"]
     vocab = train_dataset.vocabulary
-    tune_model(lambda conf, dev: Seq2Seq.from_config(vocab, conf, dev), search_space, "seg_bayesopt", fixed_cfg, train_dataset, valid_dataset, cpus=int(os.environ.get("RAY_CPUS") or 1), hrs=23)
+    tune_model(lambda conf, dev: Seq2Seq.from_config(vocab, conf, dev), search_space, os.environ.get("EXPERIMENT_NAME") or "seg_bayesopt", fixed_cfg, train_dataset, valid_dataset, cpus=int(os.environ.get("RAY_CPUS") or 1), hrs=23)
 
 if __name__ == "__main__":
     # do_train_parse()
